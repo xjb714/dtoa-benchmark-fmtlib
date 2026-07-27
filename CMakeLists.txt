@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5.0)
+cmake_minimum_required(VERSION 3.14)
 
 # Set the default build type to Release because we want to benchmark
 # optimized code.
@@ -10,6 +10,18 @@ if (NOT CMAKE_BUILD_TYPE)
 endif ()
 
 project(DTOA_BENCHMARK C CXX)
+
+# Fetch Google Benchmark.
+include(FetchContent)
+set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_WERROR OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  googlebenchmark
+  GIT_REPOSITORY https://github.com/google/benchmark.git
+  GIT_TAG v1.9.4
+)
+FetchContent_MakeAvailable(googlebenchmark)
 
 add_executable(
   dtoa-benchmark
@@ -52,12 +64,13 @@ add_executable(
   src/xjb/xjb64.cpp # 12 Feb 2026: f7481b8
   src/uscale/uscale.c # 19 Jan 2026: 6255750
   src/yy/yy_double.c
-  src/zmij/zmij.cc # 11 Feb 2026: b35b64a
+  src/zmij/zmij.cc # 1 May 2026: 4a28cf4
 )
 
 target_compile_options(dtoa-benchmark PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 target_compile_features(dtoa-benchmark PRIVATE cxx_std_20)
 target_include_directories(dtoa-benchmark PRIVATE src src/fmt/include)
+target_link_libraries(dtoa-benchmark PRIVATE benchmark::benchmark)
 
 if (APPLE)
   execute_process(
@@ -88,11 +101,19 @@ target_compile_definitions(dtoa-benchmark PRIVATE MACHINE="${CPU_NAME}")
 execute_process(COMMAND git rev-parse --short HEAD OUTPUT_VARIABLE COMMIT_HASH)
 string(STRIP "${COMMIT_HASH}" COMMIT_HASH)
 
-function(add_benchmark_target name num_trials)
+find_package(Python3 COMPONENTS Interpreter)
+if (Python3_FOUND)
+  set(GENERATE_HTML COMMAND ${Python3_EXECUTABLE} generate-html.py --all)
+else ()
+  message(WARNING "Python 3 not found. HTML files will not be generated.")
+  set(GENERATE_HTML)
+endif ()
+
+function(add_benchmark_target name)
   add_custom_target(
     ${name}
-    COMMAND dtoa-benchmark ${COMMIT_HASH} ${num_trials}
-    COMMAND cmake -P convert-results.cmake
+    COMMAND dtoa-benchmark --commit-hash=${COMMIT_HASH} ${ARGN}
+    ${GENERATE_HTML}
     # Run in the source directory because we want results to be in the source
     # results directory.
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -100,8 +121,8 @@ function(add_benchmark_target name num_trials)
   )
 endfunction()
 
-add_benchmark_target(run-benchmark 10)
-add_benchmark_target(run-benchmark-fast 3)
+add_benchmark_target(run-benchmark)
+add_benchmark_target(run-benchmark-fast --benchmark_min_time=0.5s)
 
 # Cache pressure measurement tool -- shares all dtoa implementations
 # but uses a different main() that measures L1 cache pollution.
@@ -116,10 +137,13 @@ target_compile_features(cache-pressure PRIVATE cxx_std_20)
 target_include_directories(cache-pressure PRIVATE src src/fmt/include)
 
 # L1 cache contention test -- measures dtoa degradation under L1 pressure.
-add_executable(
-  cache-contention
-  src/cache-contention.cc
-  ${DTOA_SOURCES}
-)
-target_compile_features(cache-contention PRIVATE cxx_std_20)
-target_include_directories(cache-contention PRIVATE src src/fmt/include)
+# POSIX-only: needs <unistd.h> and sysconf(_SC_LEVEL1_DCACHE_SIZE).
+if (NOT WIN32)
+  add_executable(
+    cache-contention
+    src/cache-contention.cc
+    ${DTOA_SOURCES}
+  )
+  target_compile_features(cache-contention PRIVATE cxx_std_20)
+  target_include_directories(cache-contention PRIVATE src src/fmt/include)
+endif ()

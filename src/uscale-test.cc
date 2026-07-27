@@ -5,8 +5,11 @@
 
 #include "uscale/uscale.h"
 
+#include <string.h>
+
 #include "benchmark.h"
 
-static register_method _("uscale", [](double value, char* buffer) {
+static register_method _("uscale", [](double value, char* buffer) -> char* {
   uscale_short(value, buffer);
+  return buffer + strlen(buffer);
 });

@@ -4,8 +4,9 @@
 // Copyright (c) 2024, Victor Zverovich
 // License: https://github.com/fmtlib/fmt/blob/master/LICENSE
 
+#include <math.h>    // frexp, signbit
 #include <stdint.h>  // uint32_t
-#include <string.h>  // memcpy
+#include <string.h>  // memcpy, memmove
 
 #include <charconv>  // std::to_chars
 #include <limits>    // std::numeric_limits
@@ -101,7 +102,7 @@ struct decimal {
   }
 };
 
-void dtoa(char* buf, double val, int precision) {
+char* dtoa(char* buf, double val, int precision) {
   decimal d(val);
 
   int bigit_index = *d.bigits > 0 ? 0 : 1;
@@ -154,9 +155,9 @@ void dtoa(char* buf, double val, int precision) {
   for (count += offset; count <= precision; ++count) buf[count] = '0';
   buf[count++] = 'e';
   if (exp >= 0) buf[count++] = '+';
-  *std::to_chars(buf + count, buf + count + 4, exp).ptr = '\0';
+  return std::to_chars(buf + count, buf + count + 4, exp).ptr;
 }
 
-static register_method _("puff", [](double value, char* buffer) {
-  dtoa(buffer, value, 17);
+static register_method _("puff", [](double value, char* buffer) -> char* {
+  return dtoa(buffer, value, 17);
 });
